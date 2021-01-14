@@ -1,0 +1,9 @@
+[package]
+name = "chip8_rust_emulator"
+version = "0.1.0"
+authors = ["Emre AYDIN <aeaydin1@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
