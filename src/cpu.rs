@@ -17,7 +17,7 @@ pub struct CPU {
     pub prog_counter: u16,
     pub stack_ptr: u8,
     pub stack: [u16; 16],
-    pub opcodes: Vec<String>,
+    pub opcodes: Vec<u16>,
 }
 
 impl CPU {
@@ -34,25 +34,68 @@ impl CPU {
             opcodes,
         }
     }
-    // pub fn run_instruction(&self, opcode: &str) {
-    //     // Convert opcode to
-    //     match opc {
-    //         _0NNN => println!("0NNN"),
-    //         _00E0 => println!("00E0"),
-    //         _00EE => println!("00EE"),
-    //         _1NNN => println!("1NNN"),
-    //         _2NNN => println!("2NNN"),
-    //         _3XNN => println!("3XNN"),
-    //     }
-    // }
 
-    pub fn convert_rom_to_opcodes(rom_buf: &[u8]) -> Vec<String> {
-        let mut opcodes: Vec<String> = Vec::new();
+    pub fn run_instruction(&self, opcode: u16) {
+        let (op0, op1, op2, op3): (u8, u8, u8, u8) = (
+            ((opcode & 0xF000) >> 12) as u8,
+            ((opcode & 0x0F00) >> 8) as u8,
+            ((opcode & 0x00F0) >> 4) as u8,
+            (opcode & 0x000F) as u8,
+        );
+
+        let nnn = ((op1 as u16) << 8) | ((op2 as u16) << 4) | (op3 as u16);
+        let nn = ((op2 as u16) << 4) | (op3 as u16);
+        let n = op3;
+        let vx = op1;
+        let vy = op2;
+
+        match (op0, op1, op2, op3) {
+            (0x0, 0x0, 0xE, 0x0) => println!("CLR"),
+            (0x0, 0x0, 0xE, 0xE) => println!("RET"),
+            (0x0, _, _, _) => println!("EXEC_ML_NNN"),
+            (0x1, _, _, _) => println!("JMP"),
+            (0x2, _, _, _) => println!("EXEC_NNN"),
+            (0x3, _, _, _) => println!("SKIP_VX_EQ_NN"),
+            (0x4, _, _, _) => println!("SKIP_VX_NE_NN"),
+            (0x5, _, _, _) => println!("SKIP_VX_EQ_VY"),
+            (0x6, _, _, _) => println!("STORE_NN_VX"),
+            (0x7, _, _, _) => println!("ADD_NN_VX"),
+            (0x8, _, _, 0x0) => println!("STORE_VY_VX"),
+            (0x8, _, _, 0x1) => println!("SET_VX_OR_VY"),
+            (0x8, _, _, 0x2) => println!("SET_VX_AND_VY"),
+            (0x8, _, _, 0x3) => println!("SET_VX_XOR_VY"),
+            (0x8, _, _, 0x4) => println!("ADD_VY_VX"),
+            (0x8, _, _, 0x5) => println!("SUB_VY_VX"),
+            (0x8, _, _, 0x6) => println!("STORE_VY_SR_VX"),
+            (0x8, _, _, 0x7) => println!("STORE_VY_SUB_VX"),
+            (0x8, _, _, 0xE) => println!("STORE_VY_SL_VX"),
+            (0x9, _, _, _) => println!("SKIP_VX_NE_VY"),
+            (0xA, _, _, _) => println!("SKIP_VX_NE_VY"),
+            (0xB, _, _, _) => println!("SKIP_VX_NE_VY"),
+            (0xC, _, _, _) => println!("SKIP_VX_NE_VY"),
+            (0xD, _, _, _) => println!("SKIP_VX_NE_VY"),
+            (0xE, _, 0x9, 0xE) => println!("KEY_PRESSED_EQ_VX"),
+            (0xE, _, 0xA, 0x1) => println!("KEY_NOT_PRESSED_EQ_VX"),
+            (0xF, _, 0x0, 0x7) => println!("STORE_DELAY_VX"),
+            (0xF, _, 0x0, 0xA) => println!("WAIT_KEY_PRESS_STORE_VX"),
+            (0xF, _, 0x1, 0x5) => println!("SET_DELAY_VX"),
+            (0xF, _, 0x1, 0x8) => println!("SET_SOUND_VX"),
+            (0xF, _, 0x1, 0xE) => println!("ADD_VX_VI"),
+            (0xF, _, 0x2, 0x9) => println!("SET_I_SPRITE"),
+            (0xF, _, 0x3, 0x3) => println!("STORE_BCD_VI"),
+            (0xF, _, 0x5, 0x5) => println!("STORE_V0_TO_VX_VI"),
+            (0xF, _, 0x6, 0x5) => println!("FILL_VO_TO_VX"),
+            _ => println!("NEXT_INST"),
+        }
+    }
+
+    pub fn convert_rom_to_opcodes(rom_buf: &[u8]) -> Vec<u16> {
+        let mut opcodes: Vec<u16> = Vec::new();
         for index in 0..(rom_buf.len() / 2) {
             let val0 = rom_buf[2 * index];
             let val1 = rom_buf[2 * index + 1];
             let opcode = ((val0 as u16) << 8) | val1 as u16;
-            opcodes.push(format!("{:04X}", opcode));
+            opcodes.push(opcode);
         }
         opcodes
     }
@@ -77,10 +120,10 @@ mod tests {
         // Just test the first few to make sure they're correct
         assert_eq!(
             cpu.opcodes[0..=5],
-            vec!["00E0", "A22A", "600C", "6108", "D01F", "7009",]
+            vec![0x00E0, 0xA22A, 0x600C, 0x6108, 0xD01F, 0x7009,]
         );
         // And test the last two to make sure it works
-        assert_eq!(cpu.opcodes[(cpu.opcodes.len() - 2)..], vec!["00E0", "00E0"]);
+        assert_eq!(cpu.opcodes[(cpu.opcodes.len() - 2)..], vec![0x00E0, 0x00E0]);
     }
 }
 
