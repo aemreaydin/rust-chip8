@@ -14,9 +14,6 @@ fn read_rom() -> Vec<u8> {
 
 fn main() {
     let rom_buf = read_rom();
-    let cpu = cpu::CPU::new(&rom_buf);
-    // println!("{:?}", cpu.opcodes);
-    // cpu.opcodes
-    //     .iter()
-    //     .for_each(|opcode| cpu.run_instruction(*opcode));
+    let mut cpu = cpu::CPU::new(&rom_buf);
+    cpu.run();
 }

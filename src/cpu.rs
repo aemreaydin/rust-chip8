@@ -1,14 +1,4 @@
 #[derive(Debug)]
-pub enum OpCodes {
-    _0NNN(u16),
-    _00E0(u16),
-    _00EE(u16),
-    _1NNN(u16),
-    _2NNN(u16),
-    _3XNN(u16),
-}
-
-#[derive(Debug)]
 pub struct CPU {
     pub memory: [u8; 4096],
     pub v_reg: [u8; 16],
@@ -76,7 +66,7 @@ impl CPU {
         }
     }
 
-    pub fn convert_rom_to_opcodes(rom_buf: &[u8]) -> Vec<u16> {
+    fn convert_rom_to_opcodes(rom_buf: &[u8]) -> Vec<u16> {
         let mut opcodes: Vec<u16> = Vec::new();
         for index in 0..(rom_buf.len() / 2) {
             let val0 = rom_buf[2 * index];
@@ -85,6 +75,17 @@ impl CPU {
             opcodes.push(opcode);
         }
         opcodes
+    }
+
+    fn fetch_current_instruction(&mut self) {
+        let opcode = ((self.memory[self.prog_counter as usize] as u16) << 8)
+            | (self.memory[(self.prog_counter + 1) as usize] as u16);
+        println!("{:X}", opcode);
+        self.run_instruction(opcode);
+    }
+
+    pub fn run(&mut self) {
+        self.fetch_current_instruction();
     }
 
     pub fn run_instruction(&mut self, opcode: u16) {
@@ -103,24 +104,24 @@ impl CPU {
 
         match (op0, op1, op2, op3) {
             (0x0, 0x0, 0xE, 0x0) => println!("CLR"),
-            (0x0, 0x0, 0xE, 0xE) => println!("RET"),
+            (0x0, 0x0, 0xE, 0xE) => self.return_from_subroutine(),
             (0x0, _, _, _) => println!("EXEC_ML_NNN"),
             (0x1, _, _, _) => self.jump_to_address(nnn),
-            (0x2, _, _, _) => println!("EXEC_NNN"),
-            (0x3, _, _, _) => println!("SKIP_VX_EQ_NN"),
-            (0x4, _, _, _) => println!("SKIP_VX_NE_NN"),
-            (0x5, _, _, _) => println!("SKIP_VX_EQ_VY"),
-            (0x6, _, _, _) => println!("STORE_NN_VX"),
-            (0x7, _, _, _) => println!("ADD_NN_VX"),
-            (0x8, _, _, 0x0) => println!("STORE_VY_VX"),
-            (0x8, _, _, 0x1) => println!("SET_VX_OR_VY"),
-            (0x8, _, _, 0x2) => println!("SET_VX_AND_VY"),
-            (0x8, _, _, 0x3) => println!("SET_VX_XOR_VY"),
-            (0x8, _, _, 0x4) => println!("ADD_VY_VX"),
-            (0x8, _, _, 0x5) => println!("SUB_VY_VX"),
-            (0x8, _, _, 0x6) => println!("STORE_VY_SR_VX"),
-            (0x8, _, _, 0x7) => println!("STORE_VY_SUB_VX"),
-            (0x8, _, _, 0xE) => println!("STORE_VY_SL_VX"),
+            (0x2, _, _, _) => self.call_subroutine_at_address(nnn),
+            (0x3, _, _, _) => self.skip_if_vx_eq_nn(vx, nn),
+            (0x4, _, _, _) => self.skip_if_vx_neq_nn(vx, nn),
+            (0x5, _, _, _) => self.skip_if_vx_eq_vy(vx, vy),
+            (0x6, _, _, _) => self.set_vx_to_nn(vx, nn),
+            (0x7, _, _, _) => self.add_vx_nn(vx, nn),
+            (0x8, _, _, 0x0) => self.set_vx_to_vy(vx, vy),
+            (0x8, _, _, 0x1) => self.set_vx_to_vx_or_vy(vx, vy),
+            (0x8, _, _, 0x2) => self.set_vx_to_vx_and_vy(vx, vy),
+            (0x8, _, _, 0x3) => self.set_vx_to_vx_xor_vy(vx, vy),
+            (0x8, _, _, 0x4) => self.add_vx_vy(vx, vy),
+            (0x8, _, _, 0x5) => self.sub_vx_vy(vx, vy),
+            (0x8, _, _, 0x6) => self.shift_vx_right(vx),
+            (0x8, _, _, 0x7) => self.sub_vy_vx(vx, vy),
+            (0x8, _, _, 0xE) => self.shift_vx_left(vx),
             (0x9, _, _, _) => println!("SKIP_VX_NE_VY"),
             (0xA, _, _, _) => println!("SKIP_VX_NE_VY"),
             (0xB, _, _, _) => println!("SKIP_VX_NE_VY"),
@@ -168,15 +169,78 @@ impl CPU {
     }
     // 4XNN
     fn skip_if_vx_neq_nn(&mut self, vx: u8, nn: u8) {
-        if self.v_reg[(vx as usize)] != nn {
+        if self.v_reg[vx as usize] != nn {
             self.prog_counter += 2;
         }
     }
     // 5XY0
     fn skip_if_vx_eq_vy(&mut self, vx: u8, vy: u8) {
-        if self.v_reg[(vx as usize)] == self.v_reg[(vy as usize)] {
+        if self.v_reg[vx as usize] == self.v_reg[vy as usize] {
             self.prog_counter += 2;
         }
+    }
+    // 6XNN
+    fn set_vx_to_nn(&mut self, vx: u8, nn: u8) {
+        self.v_reg[vx as usize] = nn;
+    }
+    // 7XNN
+    fn add_vx_nn(&mut self, vx: u8, nn: u8) {
+        self.v_reg[vx as usize] += nn;
+    }
+    // 8XY0
+    fn set_vx_to_vy(&mut self, vx: u8, vy: u8) {
+        self.v_reg[vx as usize] = self.v_reg[vy as usize];
+    }
+    // 8XY1
+    fn set_vx_to_vx_or_vy(&mut self, vx: u8, vy: u8) {
+        self.v_reg[vx as usize] |= self.v_reg[vy as usize];
+    }
+    // 8XY2
+    fn set_vx_to_vx_and_vy(&mut self, vx: u8, vy: u8) {
+        self.v_reg[vx as usize] &= self.v_reg[vy as usize];
+    }
+    // 8XY3
+    fn set_vx_to_vx_xor_vy(&mut self, vx: u8, vy: u8) {
+        self.v_reg[vx as usize] ^= self.v_reg[vy as usize];
+    }
+    // 8XY4
+    fn add_vx_vy(&mut self, vx: u8, vy: u8) {
+        let val_x = self.v_reg[vx as usize];
+        let val_y = self.v_reg[vy as usize];
+
+        let (sum, did_overflow) = val_x.overflowing_add(val_y);
+        self.v_reg[vx as usize] = sum;
+        self.v_reg[0xF] = if did_overflow { 1 } else { 0 };
+    }
+    // 8XY5
+    fn sub_vx_vy(&mut self, vx: u8, vy: u8) {
+        let val_x = self.v_reg[vx as usize];
+        let val_y = self.v_reg[vy as usize];
+
+        let (sub, did_overflow) = val_x.overflowing_sub(val_y);
+        self.v_reg[vx as usize] = sub;
+        self.v_reg[0xF] = if did_overflow { 1 } else { 0 };
+    }
+    // 8XY6
+    fn shift_vx_right(&mut self, vx: u8) {
+        let val_x = self.v_reg[vx as usize];
+        self.v_reg[0xF] = val_x & 1;
+        self.v_reg[vx as usize] = val_x >> 1;
+    }
+    // 8XY7
+    fn sub_vy_vx(&mut self, vx: u8, vy: u8) {
+        let val_x = self.v_reg[vx as usize];
+        let val_y = self.v_reg[vy as usize];
+
+        let (sub, did_overflow) = val_y.overflowing_sub(val_x);
+        self.v_reg[vx as usize] = sub;
+        self.v_reg[0xF] = if did_overflow { 1 } else { 0 };
+    }
+    // 8XYE
+    fn shift_vx_left(&mut self, vx: u8) {
+        let val_x = self.v_reg[vx as usize];
+        self.v_reg[0xF] = (val_x >> 7) & 1;
+        self.v_reg[vx as usize] = val_x << 1;
     }
 }
 
@@ -258,5 +322,113 @@ mod tests {
         cpu.v_reg[(vy as usize)] = val;
         cpu.skip_if_vx_eq_vy(vx, vy);
         assert_eq!(cpu.prog_counter, 0x202);
+    }
+    #[test]
+    fn sets_vx_to_nn() {
+        let mut cpu = CPU::new(&[]);
+        let val = 0xFF;
+        cpu.set_vx_to_nn(0, val);
+        assert_eq!(cpu.v_reg[0], val);
+    }
+    #[test]
+    fn adds_vx_nn() {
+        let mut cpu = CPU::new(&[]);
+        let val = 0x01;
+        cpu.v_reg[0] = 0x02;
+        cpu.add_vx_nn(0, val);
+        assert_eq!(cpu.v_reg[0], 0x03);
+    }
+    #[test]
+    fn sets_vx_to_vy() {
+        let mut cpu = CPU::new(&[]);
+        cpu.v_reg[0] = 0x02;
+        cpu.v_reg[1] = 0x03;
+        cpu.set_vx_to_vy(0, 1);
+        assert_eq!(cpu.v_reg[0], cpu.v_reg[1]);
+    }
+    #[test]
+    fn sets_vx_to_vx_or_vy() {
+        let mut cpu = CPU::new(&[]);
+        cpu.v_reg[0] = 0x02;
+        cpu.v_reg[1] = 0x03;
+        cpu.set_vx_to_vx_or_vy(0, 1);
+        assert_eq!(cpu.v_reg[0], 0x02 | 0x03);
+    }
+    #[test]
+    fn sets_vx_to_vx_and_vy() {
+        let mut cpu = CPU::new(&[]);
+        cpu.v_reg[0] = 0x02;
+        cpu.v_reg[1] = 0x03;
+        cpu.set_vx_to_vx_and_vy(0, 1);
+        assert_eq!(cpu.v_reg[0], 0x02 & 0x03);
+    }
+    #[test]
+    fn sets_vx_to_vx_xor_vy() {
+        let mut cpu = CPU::new(&[]);
+        cpu.v_reg[0] = 0x02;
+        cpu.v_reg[1] = 0x03;
+        cpu.set_vx_to_vx_xor_vy(0, 1);
+        assert_eq!(cpu.v_reg[0], 0x02 ^ 0x03);
+    }
+    #[test]
+    fn adds_vx_vy() {
+        let mut cpu = CPU::new(&[]);
+        cpu.v_reg[0] = 0x02;
+        cpu.v_reg[1] = 0x03;
+        cpu.add_vx_vy(0, 1);
+        assert_eq!(cpu.v_reg[0], 0x05);
+        assert_eq!(cpu.v_reg[0xF], 0);
+        cpu.v_reg[0] = 0xFF;
+        cpu.v_reg[1] = 0x01;
+        cpu.add_vx_vy(0, 1);
+        assert_eq!(cpu.v_reg[0], 0);
+        assert_eq!(cpu.v_reg[0xF], 1);
+    }
+    #[test]
+    fn subs_vx_vy() {
+        let mut cpu = CPU::new(&[]);
+        cpu.v_reg[0] = 0x03;
+        cpu.v_reg[1] = 0x02;
+        cpu.sub_vx_vy(0, 1);
+        assert_eq!(cpu.v_reg[0], 0x01);
+        assert_eq!(cpu.v_reg[0xF], 0);
+        cpu.v_reg[0] = 0x00;
+        cpu.v_reg[1] = 0x01;
+        cpu.sub_vx_vy(0, 1);
+        assert_eq!(cpu.v_reg[0], 0xFF);
+        assert_eq!(cpu.v_reg[0xF], 1);
+    }
+    #[test]
+    fn shifts_vx_right() {
+        let mut cpu = CPU::new(&[]);
+        cpu.v_reg[0] = 0x03;
+        cpu.shift_vx_right(0);
+        assert_eq!(cpu.v_reg[0], 1);
+        assert_eq!(cpu.v_reg[0xF], 1);
+    }
+    #[test]
+    fn subs_vy_vx() {
+        let mut cpu = CPU::new(&[]);
+        cpu.v_reg[0] = 0x02;
+        cpu.v_reg[1] = 0x04;
+        cpu.sub_vy_vx(0, 1);
+        assert_eq!(cpu.v_reg[0], 0x02);
+        assert_eq!(cpu.v_reg[0xF], 0);
+        cpu.v_reg[0] = 0x01;
+        cpu.v_reg[1] = 0x00;
+        cpu.sub_vy_vx(0, 1);
+        assert_eq!(cpu.v_reg[0], 0xFF);
+        assert_eq!(cpu.v_reg[0xF], 1);
+    }
+    #[test]
+    fn shifts_vx_left() {
+        let mut cpu = CPU::new(&[]);
+        cpu.v_reg[0] = 0x0F;
+        cpu.shift_vx_left(0);
+        assert_eq!(cpu.v_reg[0], 0x1E);
+        assert_eq!(cpu.v_reg[0xF], 0);
+        cpu.v_reg[0] = 0xFF;
+        cpu.shift_vx_left(0);
+        assert_eq!(cpu.v_reg[0xF], 1);
     }
 }
