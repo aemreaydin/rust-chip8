@@ -10,6 +10,7 @@ pub enum OpCodes {
 
 #[derive(Debug)]
 pub struct CPU {
+    pub memory: [u8; 4096],
     pub v_reg: [u8; 16],
     pub i_reg: u16,
     pub delay_reg: u8,
@@ -20,22 +21,73 @@ pub struct CPU {
     pub opcodes: Vec<u16>,
 }
 
+const FONTS: [u8; 80] = [
+    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+    0x20, 0x60, 0x20, 0x20, 0x70, // 1
+    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+    0xF0, 0x80, 0xF0, 0x80, 0x80, // F
+];
+
 impl CPU {
     pub fn new(rom_buf: &[u8]) -> Self {
         let opcodes = CPU::convert_rom_to_opcodes(rom_buf);
-        CPU {
+        let mut cpu = CPU {
+            memory: [0; 4096],
             v_reg: [0; 16],
             i_reg: 0,
             delay_reg: 0,
             sound_reg: 0,
-            prog_counter: 0,
+            prog_counter: 0x200,
             stack_ptr: 0,
             stack: [0; 16],
-            opcodes,
+            opcodes, // Is used for debugging purposes
+        };
+        // Initialize fonts in the interpreter btw. 0x000-0x1FF
+        // Fonts will be stored between 0x050-0x09F
+        cpu.init_fonts();
+        // Load the rom into memory starting from 0x200
+        // PC will point to 0x200 initially
+        cpu.load_rom_into_memory(rom_buf);
+        cpu
+    }
+
+    fn init_fonts(&mut self) {
+        let mem_start = 0x050;
+        for (ind, font) in FONTS.iter().enumerate() {
+            self.memory[mem_start + ind] = *font;
         }
     }
 
-    pub fn run_instruction(&self, opcode: u16) {
+    fn load_rom_into_memory(&mut self, rom_buf: &[u8]) {
+        for (ind, byte) in rom_buf.iter().enumerate() {
+            self.memory[(self.prog_counter as usize) + ind] = *byte;
+        }
+    }
+
+    pub fn convert_rom_to_opcodes(rom_buf: &[u8]) -> Vec<u16> {
+        let mut opcodes: Vec<u16> = Vec::new();
+        for index in 0..(rom_buf.len() / 2) {
+            let val0 = rom_buf[2 * index];
+            let val1 = rom_buf[2 * index + 1];
+            let opcode = ((val0 as u16) << 8) | val1 as u16;
+            opcodes.push(opcode);
+        }
+        opcodes
+    }
+
+    pub fn run_instruction(&mut self, opcode: u16) {
         let (op0, op1, op2, op3): (u8, u8, u8, u8) = (
             ((opcode & 0xF000) >> 12) as u8,
             ((opcode & 0x0F00) >> 8) as u8,
@@ -53,7 +105,7 @@ impl CPU {
             (0x0, 0x0, 0xE, 0x0) => println!("CLR"),
             (0x0, 0x0, 0xE, 0xE) => println!("RET"),
             (0x0, _, _, _) => println!("EXEC_ML_NNN"),
-            (0x1, _, _, _) => println!("JMP"),
+            (0x1, _, _, _) => self.jump_to_address(nnn),
             (0x2, _, _, _) => println!("EXEC_NNN"),
             (0x3, _, _, _) => println!("SKIP_VX_EQ_NN"),
             (0x4, _, _, _) => println!("SKIP_VX_NE_NN"),
@@ -89,15 +141,16 @@ impl CPU {
         }
     }
 
-    pub fn convert_rom_to_opcodes(rom_buf: &[u8]) -> Vec<u16> {
-        let mut opcodes: Vec<u16> = Vec::new();
-        for index in 0..(rom_buf.len() / 2) {
-            let val0 = rom_buf[2 * index];
-            let val1 = rom_buf[2 * index + 1];
-            let opcode = ((val0 as u16) << 8) | val1 as u16;
-            opcodes.push(opcode);
-        }
-        opcodes
+    fn clear_display(&mut self) {
+        todo!();
+    }
+
+    fn return_from_subroutine(&mut self) {
+        todo!();
+    }
+
+    fn jump_to_address(&mut self, address: u16) {
+        self.prog_counter = address;
     }
 }
 
@@ -125,77 +178,11 @@ mod tests {
         // And test the last two to make sure it works
         assert_eq!(cpu.opcodes[(cpu.opcodes.len() - 2)..], vec![0x00E0, 0x00E0]);
     }
+    #[test]
+    fn jumps_to_address() {
+        let mut cpu = CPU::new(&[]);
+        let addr = 0x300;
+        cpu.jump_to_address(addr);
+        assert_eq!(cpu.prog_counter, addr);
+    }
 }
-
-// pub mod Instructions {
-//     // 0NNN
-//     pub fn exec_subroutine(opcode: u16) {}
-//     // 00E0
-//     pub fn clear_screen(opcode: u16) {}
-//     // 00EE
-//     pub fn return_from_subroutine(opcode: u16) {}
-//     // 1NNN
-//     pub fn jump_to_address(opcode: u16) {}
-//     // 2NNN
-//     pub fn exec_subroutine_from_address(opcode: u16) {}
-//     // 3XNN
-//     pub fn skip_if_vx_equals_value(opcode: u16) {}
-//     // 4XNN
-//     pub fn skip_if_vx_not_equals_value(opcode: u16) {}
-//     // 5XY0
-//     pub fn skip_if_vx_equals_vy(opcode: u16) {}
-//     // 6XNN
-//     pub fn store_value_in_vx(opcode: u16) {}
-//     // 7XNN
-//     pub fn add_value_to_vx(opcode: u16) {}
-//     // 8XY0
-//     pub fn store_vy_in_vx(opcode: u16) {}
-//     // 8XY1
-//     pub fn set_vx_to_vx_or_vy(opcode: u16) {}
-//     // 8XY2
-//     pub fn set_vx_to_vx_and_vy(opcode: u16) {}
-//     // 8XY3
-//     pub fn set_vx_to_vx_xor_vy(opcode: u16) {}
-//     // 8XY4
-//     pub fn add_vy_to_vx(opcode: u16) {}
-//     // 8XY5
-//     pub fn subtract_vy_to_vx(opcode: u16) {}
-//     // 8XY6
-//     pub fn store_vy_shifted_right_in_vx(opcode: u16) {}
-//     // 8XY7
-//     pub fn set_vx_to_vy_minus_vx(opcode: u16) {}
-//     // 8XYE
-//     pub fn store_vy_shifted_left_in_vx(opcode: u16) {}
-//     // 9XY0
-//     pub fn skip_if_vx_not_equals_vy(opcode: u16) {}
-//     // ANNN
-//     pub fn store_value_in_reg_i(opcode: u16) {}
-//     // BNNN
-//     pub fn jump_to_address_value_plus_v0(opcode: u16) {}
-//     // CXNN
-//     pub fn set_vx_to_random_number_with_mask_of_nn(opcode: u16) {}
-//     // DXYN
-//     pub fn draw_sprite_at_position_vx_vy(opcode: u16) {}
-//     // EX9E
-//     pub fn skip_instruction_if_key_pressed_matches_vx(opcode: u16) {}
-//     // EXA1
-//     pub fn skip_instruction_if_not_key_pressed_matches_vx(opcode: u16) {}
-//     // FX07
-//     pub fn store_delay_timer_value_in_vx(opcode: u16) {}
-//     // FX0A
-//     pub fn wait_for_keypress_and_store_in_vx(opcode: u16) {}
-//     // FX15
-//     pub fn set_delay_timer_to_vx(opcode: u16) {}
-//     // FX18
-//     pub fn set_sound_timer_to_vx(opcode: u16) {}
-//     // FX1E
-//     pub fn add_vx_to_reg_i(opcode: u16) {}
-//     // FX29
-//     pub fn set_reg_i_to_address_of_sprite_data_from_vx(opcode: u16) {}
-//     // FX33
-//     pub fn store_bcd_of_vx_at_reg_i_1_2_3_LOL(opcode: u16) {}
-//     // FX55
-//     pub fn store_v0_to_vx_in_memory_address_from_reg_i(opcode: u16) {}
-//     // FX65
-//     pub fn fill_v0_to_vx_from_memory_address_from_reg_i(opcode: u16) {}
-// }
