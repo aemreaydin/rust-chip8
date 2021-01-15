@@ -1,15 +1,4 @@
-#[derive(Debug)]
-pub struct CPU {
-    pub memory: [u8; 4096],
-    pub v_reg: [u8; 16],
-    pub i_reg: u16,
-    pub delay_reg: u8,
-    pub sound_reg: u8,
-    pub prog_counter: u16,
-    pub stack_ptr: u8,
-    pub stack: [u16; 16],
-    pub opcodes: Vec<u16>,
-}
+use rand::Rng;
 
 const FONTS: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -29,6 +18,19 @@ const FONTS: [u8; 80] = [
     0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
     0xF0, 0x80, 0xF0, 0x80, 0x80, // F
 ];
+
+#[derive(Debug)]
+pub struct CPU {
+    pub memory: [u8; 4096],
+    pub v_reg: [u8; 16],
+    pub i_reg: u16,
+    pub delay_reg: u8,
+    pub sound_reg: u8,
+    pub prog_counter: u16,
+    pub stack_ptr: u8,
+    pub stack: [u16; 16],
+    pub opcodes: Vec<u16>,
+}
 
 impl CPU {
     pub fn new(rom_buf: &[u8]) -> Self {
@@ -103,9 +105,8 @@ impl CPU {
         let vy = op2;
 
         match (op0, op1, op2, op3) {
-            (0x0, 0x0, 0xE, 0x0) => println!("CLR"),
+            (0x0, 0x0, 0xE, 0x0) => self.clear_display(),
             (0x0, 0x0, 0xE, 0xE) => self.return_from_subroutine(),
-            (0x0, _, _, _) => println!("EXEC_ML_NNN"),
             (0x1, _, _, _) => self.jump_to_address(nnn),
             (0x2, _, _, _) => self.call_subroutine_at_address(nnn),
             (0x3, _, _, _) => self.skip_if_vx_eq_nn(vx, nn),
@@ -122,10 +123,10 @@ impl CPU {
             (0x8, _, _, 0x6) => self.shift_vx_right(vx),
             (0x8, _, _, 0x7) => self.sub_vy_vx(vx, vy),
             (0x8, _, _, 0xE) => self.shift_vx_left(vx),
-            (0x9, _, _, _) => println!("SKIP_VX_NE_VY"),
-            (0xA, _, _, _) => println!("SKIP_VX_NE_VY"),
-            (0xB, _, _, _) => println!("SKIP_VX_NE_VY"),
-            (0xC, _, _, _) => println!("SKIP_VX_NE_VY"),
+            (0x9, _, _, _) => self.skip_if_vx_neq_vy(vx, vy),
+            (0xA, _, _, _) => self.set_ind_reg_to_address(nnn),
+            (0xB, _, _, _) => self.jump_to_v0_plus_address(nnn),
+            (0xC, _, _, _) => self.set_vx_to_rnd_and_nn(vx, nn),
             (0xD, _, _, _) => println!("SKIP_VX_NE_VY"),
             (0xE, _, 0x9, 0xE) => println!("KEY_PRESSED_EQ_VX"),
             (0xE, _, 0xA, 0x1) => println!("KEY_NOT_PRESSED_EQ_VX"),
@@ -143,7 +144,7 @@ impl CPU {
     }
     // 00E0
     fn clear_display(&mut self) {
-        todo!();
+        println!("Clear Display")
     }
     // 00EE
     fn return_from_subroutine(&mut self) {
@@ -241,6 +242,26 @@ impl CPU {
         let val_x = self.v_reg[vx as usize];
         self.v_reg[0xF] = (val_x >> 7) & 1;
         self.v_reg[vx as usize] = val_x << 1;
+    }
+    // 9XY0
+    fn skip_if_vx_neq_vy(&mut self, vx: u8, vy: u8) {
+        if self.v_reg[vx as usize] != self.v_reg[vy as usize] {
+            self.prog_counter += 2;
+        }
+    }
+    // ANNN
+    fn set_ind_reg_to_address(&mut self, address: u16) {
+        self.i_reg = address;
+    }
+    // BNNN
+    fn jump_to_v0_plus_address(&mut self, address: u16) {
+        self.prog_counter = (self.v_reg[0] as u16) + address;
+    }
+    // CXNN
+    fn set_vx_to_rnd_and_nn(&mut self, vx: u8, nn: u8) {
+        let mut rng = rand::thread_rng();
+        let rnd: u8 = rng.gen();
+        self.v_reg[vx as usize] = rnd & nn;
     }
 }
 
@@ -430,5 +451,40 @@ mod tests {
         cpu.v_reg[0] = 0xFF;
         cpu.shift_vx_left(0);
         assert_eq!(cpu.v_reg[0xF], 1);
+    }
+    #[test]
+    fn skips_if_vx_neq_vy() {
+        let mut cpu = CPU::new(&[]);
+        let val = 0xCC;
+        cpu.v_reg[0] = val;
+        cpu.v_reg[1] = val;
+        // Doesn't skip
+        cpu.skip_if_vx_neq_vy(0, 1);
+        assert_eq!(cpu.prog_counter, 0x200);
+        // Skip
+        cpu.v_reg[1] = val + 1;
+        cpu.skip_if_vx_neq_vy(0, 1);
+        assert_eq!(cpu.prog_counter, 0x202);
+    }
+    #[test]
+    fn sets_ind_reg_to_address() {
+        let mut cpu = CPU::new(&[]);
+        let address = 0x0ABC;
+        cpu.set_ind_reg_to_address(address);
+        assert_eq!(cpu.i_reg, address);
+    }
+    #[test]
+    fn jumps_to_v0_plus_address() {
+        let mut cpu = CPU::new(&[]);
+        cpu.v_reg[0] = 0xFF;
+        let address = 0xABC;
+        cpu.jump_to_v0_plus_address(address);
+        assert_eq!(cpu.prog_counter, 0xFF + address);
+    }
+    #[test]
+    fn sets_vx_to_rnd_and_nn() {
+        let mut cpu = CPU::new(&[]);
+        cpu.set_vx_to_rnd_and_nn(0, 0x0F);
+        assert_eq!(cpu.v_reg[0] & 0xF0, 0);
     }
 }
