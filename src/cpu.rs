@@ -96,7 +96,7 @@ impl CPU {
         );
 
         let nnn = ((op1 as u16) << 8) | ((op2 as u16) << 4) | (op3 as u16);
-        let nn = ((op2 as u16) << 4) | (op3 as u16);
+        let nn: u8 = ((op2 as u8) << 4) | (op3 as u8);
         let n = op3;
         let vx = op1;
         let vy = op2;
@@ -140,17 +140,43 @@ impl CPU {
             _ => println!("NEXT_INST"),
         }
     }
-
+    // 00E0
     fn clear_display(&mut self) {
         todo!();
     }
-
+    // 00EE
     fn return_from_subroutine(&mut self) {
-        todo!();
+        self.stack_ptr -= 1;
+        self.prog_counter = self.stack[(self.stack_ptr as usize)];
     }
-
+    // 1NNN
     fn jump_to_address(&mut self, address: u16) {
         self.prog_counter = address;
+    }
+    // 2NNN
+    fn call_subroutine_at_address(&mut self, address: u16) {
+        // Store the program counter in the stack
+        self.stack[(self.stack_ptr as usize)] = self.prog_counter;
+        self.stack_ptr += 1;
+        self.prog_counter = address;
+    }
+    // 3XNN
+    fn skip_if_vx_eq_nn(&mut self, vx: u8, nn: u8) {
+        if self.v_reg[(vx as usize)] == nn {
+            self.prog_counter += 2;
+        }
+    }
+    // 4XNN
+    fn skip_if_vx_neq_nn(&mut self, vx: u8, nn: u8) {
+        if self.v_reg[(vx as usize)] != nn {
+            self.prog_counter += 2;
+        }
+    }
+    // 5XY0
+    fn skip_if_vx_eq_vy(&mut self, vx: u8, vy: u8) {
+        if self.v_reg[(vx as usize)] == self.v_reg[(vy as usize)] {
+            self.prog_counter += 2;
+        }
     }
 }
 
@@ -167,7 +193,7 @@ mod tests {
         rom_buf
     }
     #[test]
-    fn opcode_conversion_successful() {
+    fn converts_opcode() {
         let test_opcode = read_test_opcode();
         let cpu = CPU::new(&test_opcode);
         // Just test the first few to make sure they're correct
@@ -184,5 +210,53 @@ mod tests {
         let addr = 0x300;
         cpu.jump_to_address(addr);
         assert_eq!(cpu.prog_counter, addr);
+    }
+    #[test]
+    fn calls_and_returns_from_subroutine() {
+        let mut cpu = CPU::new(&[]);
+        let addr = 0x300;
+        cpu.call_subroutine_at_address(addr);
+        assert_eq!(cpu.prog_counter, addr);
+        cpu.return_from_subroutine();
+        assert_eq!(cpu.prog_counter, 0x200);
+    }
+    #[test]
+    fn skips_if_vx_eq_nn() {
+        let mut cpu = CPU::new(&[]);
+        let val = 0xCC;
+        cpu.v_reg[0] = val;
+        // Doesn't skip
+        cpu.skip_if_vx_eq_nn(0, 0xCD);
+        assert_eq!(cpu.prog_counter, 0x200);
+        // Skip
+        cpu.skip_if_vx_eq_nn(0, val);
+        assert_eq!(cpu.prog_counter, 0x202);
+    }
+    #[test]
+    fn skips_if_vx_neq_nn() {
+        let mut cpu = CPU::new(&[]);
+        let val = 0xCC;
+        cpu.v_reg[0] = val;
+        // Doesn't skip
+        cpu.skip_if_vx_neq_nn(0, val);
+        assert_eq!(cpu.prog_counter, 0x200);
+        // Skip
+        cpu.skip_if_vx_neq_nn(0, 0xCD);
+        assert_eq!(cpu.prog_counter, 0x202);
+    }
+    #[test]
+    fn skips_if_vx_eq_vy() {
+        let mut cpu = CPU::new(&[]);
+        let val = 0xCC;
+        let vx: u8 = 0;
+        let vy: u8 = 1;
+        // Doesn't skip
+        cpu.v_reg[(vx as usize)] = val;
+        cpu.skip_if_vx_eq_vy(vx, vy);
+        assert_eq!(cpu.prog_counter, 0x200);
+        // Skip
+        cpu.v_reg[(vy as usize)] = val;
+        cpu.skip_if_vx_eq_vy(vx, vy);
+        assert_eq!(cpu.prog_counter, 0x202);
     }
 }
