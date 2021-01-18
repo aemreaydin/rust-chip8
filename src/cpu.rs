@@ -19,6 +19,10 @@ const FONTS: [u8; 80] = [
     0xF0, 0x80, 0xF0, 0x80, 0x80, // F
 ];
 
+trait FontMemStart {
+    const FONT_MEM_START: usize = 0x050;
+}
+
 #[derive(Debug)]
 pub struct CPU {
     pub memory: [u8; 4096],
@@ -31,6 +35,7 @@ pub struct CPU {
     pub stack: [u16; 16],
     pub opcodes: Vec<u16>,
 }
+impl FontMemStart for CPU {}
 
 impl CPU {
     pub fn new(rom_buf: &[u8]) -> Self {
@@ -56,9 +61,8 @@ impl CPU {
     }
 
     fn init_fonts(&mut self) {
-        let mem_start = 0x050;
         for (ind, font) in FONTS.iter().enumerate() {
-            self.memory[mem_start + ind] = *font;
+            self.memory[CPU::FONT_MEM_START + ind] = *font;
         }
     }
 
@@ -128,17 +132,17 @@ impl CPU {
             (0xB, _, _, _) => self.jump_to_v0_plus_address(nnn),
             (0xC, _, _, _) => self.set_vx_to_rnd_and_nn(vx, nn),
             (0xD, _, _, _) => self.display_sprite(vx, vy, n),
-            (0xE, _, 0x9, 0xE) => println!("KEY_PRESSED_EQ_VX"),
-            (0xE, _, 0xA, 0x1) => println!("KEY_NOT_PRESSED_EQ_VX"),
-            (0xF, _, 0x0, 0x7) => println!("STORE_DELAY_VX"),
-            (0xF, _, 0x0, 0xA) => println!("WAIT_KEY_PRESS_STORE_VX"),
-            (0xF, _, 0x1, 0x5) => println!("SET_DELAY_VX"),
-            (0xF, _, 0x1, 0x8) => println!("SET_SOUND_VX"),
-            (0xF, _, 0x1, 0xE) => println!("ADD_VX_VI"),
-            (0xF, _, 0x2, 0x9) => println!("SET_I_SPRITE"),
-            (0xF, _, 0x3, 0x3) => println!("STORE_BCD_VI"),
-            (0xF, _, 0x5, 0x5) => println!("STORE_V0_TO_VX_VI"),
-            (0xF, _, 0x6, 0x5) => println!("FILL_VO_TO_VX"),
+            (0xE, _, 0x9, 0xE) => self.skip_if_key_eq_vx_pressed(vx),
+            (0xE, _, 0xA, 0x1) => self.skip_if_key_eq_vx_not_pressed(vx),
+            (0xF, _, 0x0, 0x7) => self.set_vx_to_delay_timer(vx),
+            (0xF, _, 0x0, 0xA) => self.set_vx_to_key_press(vx),
+            (0xF, _, 0x1, 0x5) => self.set_delay_timer_to_vx(vx),
+            (0xF, _, 0x1, 0x8) => self.set_sound_timer_to_vx(vx),
+            (0xF, _, 0x1, 0xE) => self.add_ind_reg_vx(vx),
+            (0xF, _, 0x2, 0x9) => self.set_ind_reg_to_loc_of_sprite_for_digit_vx(vx),
+            (0xF, _, 0x3, 0x3) => self.store_bcd_vx_in_ind_reg(vx),
+            (0xF, _, 0x5, 0x5) => self.store_v_reg_in_memory_from_ind_reg(vx),
+            (0xF, _, 0x6, 0x5) => self.read_v_reg_from_ind_reg(vx),
             _ => println!("NEXT_INST"),
         }
     }
@@ -264,16 +268,16 @@ impl CPU {
         self.v_reg[vx as usize] = rnd & nn;
     }
     // DXYN
-    fn display_sprite(&mut self, vx: u8, vy: u8, n: u8) {
+    fn display_sprite(&mut self, _vx: u8, _vy: u8, _n: u8) {
         // let sprite = &self.memory[(self.i_reg as usize)..((self.i_reg as usize) + n as usize)];
         todo!();
     }
     // EX9E
-    fn skip_if_key_eq_vx_pressed(&mut self) {
+    fn skip_if_key_eq_vx_pressed(&mut self, _vx: u8) {
         todo!();
     }
     // EXA1
-    fn skip_if_key_eq_vx_not_pressed() {
+    fn skip_if_key_eq_vx_not_pressed(&mut self, _vx: u8) {
         todo!();
     }
     // FX07
@@ -281,7 +285,7 @@ impl CPU {
         self.v_reg[vx as usize] = self.delay_reg;
     }
     // FX0A
-    fn set_vx_to_key_press(&mut self, vx: u8) {
+    fn set_vx_to_key_press(&mut self, _vx: u8) {
         todo!();
     }
     // FX15
@@ -291,6 +295,35 @@ impl CPU {
     // FX18
     fn set_sound_timer_to_vx(&mut self, vx: u8) {
         self.sound_reg = self.v_reg[vx as usize];
+    }
+    // FX1E
+    fn add_ind_reg_vx(&mut self, vx: u8) {
+        self.i_reg += self.v_reg[vx as usize] as u16;
+    }
+    // FX29
+    fn set_ind_reg_to_loc_of_sprite_for_digit_vx(&mut self, vx: u8) {
+        self.i_reg = FONTS[CPU::FONT_MEM_START + (vx * 5) as usize].into();
+    }
+    // FX33
+    fn store_bcd_vx_in_ind_reg(&mut self, vx: u8) {
+        let ones = self.v_reg[vx as usize] % 10;
+        let tens = (self.v_reg[vx as usize] / 10) % 10;
+        let hundreds = (self.v_reg[vx as usize] / 100) % 10;
+        self.memory[(self.i_reg) as usize] = hundreds;
+        self.memory[(self.i_reg + 1) as usize] = tens;
+        self.memory[(self.i_reg + 2) as usize] = ones;
+    }
+    // FX55
+    fn store_v_reg_in_memory_from_ind_reg(&mut self, vx: u8) {
+        for ind in 0..=(vx as usize) {
+            self.memory[(self.i_reg as usize) + ind] = self.v_reg[ind];
+        }
+    }
+    // FX65
+    fn read_v_reg_from_ind_reg(&mut self, vx: u8) {
+        for ind in 0..=(vx as usize) {
+            self.v_reg[ind] = self.memory[(self.i_reg as usize) + ind];
+        }
     }
 }
 
@@ -556,5 +589,49 @@ mod tests {
         cpu.v_reg[0] = 0x03;
         cpu.set_sound_timer_to_vx(0);
         assert_eq!(cpu.v_reg[0], cpu.sound_reg);
+    }
+    #[test]
+    fn adds_ind_reg_vx() {
+        let mut cpu = CPU::new(&[]);
+        cpu.i_reg = 0x02;
+        cpu.v_reg[0] = 0x03;
+        cpu.add_ind_reg_vx(0);
+        assert_eq!(cpu.i_reg, 0x05);
+    }
+    #[test]
+    #[ignore = "not yet implemented"]
+    fn sets_ind_reg_to_loc_of_sprite_for_digit_vx() {
+        todo!();
+    }
+    #[test]
+    fn stores_bcd_vx_in_ind_reg() {
+        let mut cpu = CPU::new(&[]);
+        cpu.v_reg[0] = 143;
+        cpu.store_bcd_vx_in_ind_reg(0);
+        assert_eq!(cpu.memory[cpu.i_reg as usize], 1);
+        assert_eq!(cpu.memory[(cpu.i_reg + 1) as usize], 4);
+        assert_eq!(cpu.memory[(cpu.i_reg + 2) as usize], 3);
+    }
+    #[test]
+    fn stores_v_reg_in_memory_from_ind_reg() {
+        let mut cpu = CPU::new(&[]);
+        cpu.v_reg[0] = 143;
+        cpu.v_reg[1] = 255;
+        cpu.v_reg[2] = 12;
+        cpu.store_v_reg_in_memory_from_ind_reg(2);
+        assert_eq!(cpu.memory[cpu.i_reg as usize], 143);
+        assert_eq!(cpu.memory[(cpu.i_reg + 1) as usize], 255);
+        assert_eq!(cpu.memory[(cpu.i_reg + 2) as usize], 12);
+    }
+    #[test]
+    fn reads_v_reg_from_ind_reg() {
+        let mut cpu = CPU::new(&[]);
+        cpu.memory[cpu.i_reg as usize] = 143;
+        cpu.memory[(cpu.i_reg + 1) as usize] = 255;
+        cpu.memory[(cpu.i_reg + 2) as usize] = 3;
+        cpu.read_v_reg_from_ind_reg(2);
+        assert_eq!(cpu.v_reg[0], 143);
+        assert_eq!(cpu.v_reg[1], 255);
+        assert_eq!(cpu.v_reg[2], 3);
     }
 }
