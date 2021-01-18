@@ -127,7 +127,7 @@ impl CPU {
             (0xA, _, _, _) => self.set_ind_reg_to_address(nnn),
             (0xB, _, _, _) => self.jump_to_v0_plus_address(nnn),
             (0xC, _, _, _) => self.set_vx_to_rnd_and_nn(vx, nn),
-            (0xD, _, _, _) => println!("SKIP_VX_NE_VY"),
+            (0xD, _, _, _) => self.display_sprite(vx, vy, n),
             (0xE, _, 0x9, 0xE) => println!("KEY_PRESSED_EQ_VX"),
             (0xE, _, 0xA, 0x1) => println!("KEY_NOT_PRESSED_EQ_VX"),
             (0xF, _, 0x0, 0x7) => println!("STORE_DELAY_VX"),
@@ -262,6 +262,35 @@ impl CPU {
         let mut rng = rand::thread_rng();
         let rnd: u8 = rng.gen();
         self.v_reg[vx as usize] = rnd & nn;
+    }
+    // DXYN
+    fn display_sprite(&mut self, vx: u8, vy: u8, n: u8) {
+        // let sprite = &self.memory[(self.i_reg as usize)..((self.i_reg as usize) + n as usize)];
+        todo!();
+    }
+    // EX9E
+    fn skip_if_key_eq_vx_pressed(&mut self) {
+        todo!();
+    }
+    // EXA1
+    fn skip_if_key_eq_vx_not_pressed() {
+        todo!();
+    }
+    // FX07
+    fn set_vx_to_delay_timer(&mut self, vx: u8) {
+        self.v_reg[vx as usize] = self.delay_reg;
+    }
+    // FX0A
+    fn set_vx_to_key_press(&mut self, vx: u8) {
+        todo!();
+    }
+    // FX15
+    fn set_delay_timer_to_vx(&mut self, vx: u8) {
+        self.delay_reg = self.v_reg[vx as usize];
+    }
+    // FX18
+    fn set_sound_timer_to_vx(&mut self, vx: u8) {
+        self.sound_reg = self.v_reg[vx as usize];
     }
 }
 
@@ -486,5 +515,46 @@ mod tests {
         let mut cpu = CPU::new(&[]);
         cpu.set_vx_to_rnd_and_nn(0, 0x0F);
         assert_eq!(cpu.v_reg[0] & 0xF0, 0);
+    }
+    #[test]
+    #[ignore = "not yet implemented"]
+    fn displays_sprite() {
+        todo!();
+    }
+    #[test]
+    #[ignore = "not yet implemented"]
+    fn skips_if_key_eq_vx_pressed() {
+        todo!();
+    }
+    #[test]
+    #[ignore = "not yet implemented"]
+    fn skips_if_key_eq_vx_not_pressed() {
+        todo!();
+    }
+    #[test]
+    fn sets_vx_to_delay_timer() {
+        let mut cpu = CPU::new(&[]);
+        cpu.delay_reg = 0x03;
+        cpu.set_vx_to_delay_timer(0);
+        assert_eq!(cpu.v_reg[0], cpu.delay_reg);
+    }
+    #[test]
+    #[ignore = "not yet implemented"]
+    fn sets_vx_to_key_press() {
+        todo!();
+    }
+    #[test]
+    fn sets_delay_timer_to_vx() {
+        let mut cpu = CPU::new(&[]);
+        cpu.v_reg[0] = 0x03;
+        cpu.set_delay_timer_to_vx(0);
+        assert_eq!(cpu.v_reg[0], cpu.delay_reg);
+    }
+    #[test]
+    fn sets_sound_timer_to_vx() {
+        let mut cpu = CPU::new(&[]);
+        cpu.v_reg[0] = 0x03;
+        cpu.set_sound_timer_to_vx(0);
+        assert_eq!(cpu.v_reg[0], cpu.sound_reg);
     }
 }
