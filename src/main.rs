@@ -1,7 +1,7 @@
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
-mod cpu;
+mod chip8;
 
 fn read_rom() -> Vec<u8> {
     let file_name = env::args().nth(1).unwrap();
@@ -14,6 +14,6 @@ fn read_rom() -> Vec<u8> {
 
 fn main() {
     let rom_buf = read_rom();
-    let mut cpu = cpu::CPU::new(&rom_buf);
+    let mut cpu = chip8::cpu::CPU::new(&rom_buf);
     cpu.run();
 }

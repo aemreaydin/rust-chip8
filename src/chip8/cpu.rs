@@ -1,3 +1,6 @@
+use std::time::Duration;
+
+use super::display;
 use rand::Rng;
 
 const FONTS: [u8; 80] = [
@@ -34,6 +37,7 @@ pub struct CPU {
     pub stack_ptr: u8,
     pub stack: [u16; 16],
     pub opcodes: Vec<u16>,
+    pub display: display::Display,
 }
 impl FontMemStart for CPU {}
 
@@ -50,6 +54,7 @@ impl CPU {
             stack_ptr: 0,
             stack: [0; 16],
             opcodes, // Is used for debugging purposes
+            display: display::Display::new(640, 320),
         };
         // Initialize fonts in the interpreter btw. 0x000-0x1FF
         // Fonts will be stored between 0x050-0x09F
@@ -83,15 +88,24 @@ impl CPU {
         opcodes
     }
 
-    fn fetch_current_instruction(&mut self) {
-        let opcode = ((self.memory[self.prog_counter as usize] as u16) << 8)
-            | (self.memory[(self.prog_counter + 1) as usize] as u16);
-        println!("{:X}", opcode);
-        self.run_instruction(opcode);
+    fn fetch_current_instruction(&mut self) -> u16 {
+        ((self.memory[self.prog_counter as usize] as u16) << 8)
+            | (self.memory[(self.prog_counter + 1) as usize] as u16)
     }
 
     pub fn run(&mut self) {
-        self.fetch_current_instruction();
+        'running: loop {
+            let opcode = self.fetch_current_instruction();
+            println!("{:04X}", opcode);
+            self.run_instruction(opcode);
+
+            let should_break = self.display.update();
+            if should_break {
+                break 'running;
+            }
+
+            ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 1));
+        }
     }
 
     pub fn run_instruction(&mut self, opcode: u16) {
@@ -148,7 +162,8 @@ impl CPU {
     }
     // 00E0
     fn clear_display(&mut self) {
-        println!("Clear Display")
+        self.display.clear();
+        self.prog_counter += 2;
     }
     // 00EE
     fn return_from_subroutine(&mut self) {
@@ -171,42 +186,51 @@ impl CPU {
         if self.v_reg[(vx as usize)] == nn {
             self.prog_counter += 2;
         }
+        self.prog_counter += 2;
     }
     // 4XNN
     fn skip_if_vx_neq_nn(&mut self, vx: u8, nn: u8) {
         if self.v_reg[vx as usize] != nn {
             self.prog_counter += 2;
         }
+        self.prog_counter += 2;
     }
     // 5XY0
     fn skip_if_vx_eq_vy(&mut self, vx: u8, vy: u8) {
         if self.v_reg[vx as usize] == self.v_reg[vy as usize] {
             self.prog_counter += 2;
         }
+        self.prog_counter += 2;
     }
     // 6XNN
     fn set_vx_to_nn(&mut self, vx: u8, nn: u8) {
         self.v_reg[vx as usize] = nn;
+        self.prog_counter += 2;
     }
     // 7XNN
     fn add_vx_nn(&mut self, vx: u8, nn: u8) {
-        self.v_reg[vx as usize] += nn;
+        self.v_reg[vx as usize] = self.v_reg[vx as usize].wrapping_add(nn);
+        self.prog_counter += 2;
     }
     // 8XY0
     fn set_vx_to_vy(&mut self, vx: u8, vy: u8) {
         self.v_reg[vx as usize] = self.v_reg[vy as usize];
+        self.prog_counter += 2;
     }
     // 8XY1
     fn set_vx_to_vx_or_vy(&mut self, vx: u8, vy: u8) {
         self.v_reg[vx as usize] |= self.v_reg[vy as usize];
+        self.prog_counter += 2;
     }
     // 8XY2
     fn set_vx_to_vx_and_vy(&mut self, vx: u8, vy: u8) {
         self.v_reg[vx as usize] &= self.v_reg[vy as usize];
+        self.prog_counter += 2;
     }
     // 8XY3
     fn set_vx_to_vx_xor_vy(&mut self, vx: u8, vy: u8) {
         self.v_reg[vx as usize] ^= self.v_reg[vy as usize];
+        self.prog_counter += 2;
     }
     // 8XY4
     fn add_vx_vy(&mut self, vx: u8, vy: u8) {
@@ -216,6 +240,7 @@ impl CPU {
         let (sum, did_overflow) = val_x.overflowing_add(val_y);
         self.v_reg[vx as usize] = sum;
         self.v_reg[0xF] = if did_overflow { 1 } else { 0 };
+        self.prog_counter += 2;
     }
     // 8XY5
     fn sub_vx_vy(&mut self, vx: u8, vy: u8) {
@@ -225,12 +250,14 @@ impl CPU {
         let (sub, did_overflow) = val_x.overflowing_sub(val_y);
         self.v_reg[vx as usize] = sub;
         self.v_reg[0xF] = if did_overflow { 1 } else { 0 };
+        self.prog_counter += 2;
     }
     // 8XY6
     fn shift_vx_right(&mut self, vx: u8) {
         let val_x = self.v_reg[vx as usize];
         self.v_reg[0xF] = val_x & 1;
         self.v_reg[vx as usize] = val_x >> 1;
+        self.prog_counter += 2;
     }
     // 8XY7
     fn sub_vy_vx(&mut self, vx: u8, vy: u8) {
@@ -240,22 +267,26 @@ impl CPU {
         let (sub, did_overflow) = val_y.overflowing_sub(val_x);
         self.v_reg[vx as usize] = sub;
         self.v_reg[0xF] = if did_overflow { 1 } else { 0 };
+        self.prog_counter += 2;
     }
     // 8XYE
     fn shift_vx_left(&mut self, vx: u8) {
         let val_x = self.v_reg[vx as usize];
         self.v_reg[0xF] = (val_x >> 7) & 1;
         self.v_reg[vx as usize] = val_x << 1;
+        self.prog_counter += 2;
     }
     // 9XY0
     fn skip_if_vx_neq_vy(&mut self, vx: u8, vy: u8) {
         if self.v_reg[vx as usize] != self.v_reg[vy as usize] {
             self.prog_counter += 2;
         }
+        self.prog_counter += 2;
     }
     // ANNN
     fn set_ind_reg_to_address(&mut self, address: u16) {
         self.i_reg = address;
+        self.prog_counter += 2;
     }
     // BNNN
     fn jump_to_v0_plus_address(&mut self, address: u16) {
@@ -266,43 +297,66 @@ impl CPU {
         let mut rng = rand::thread_rng();
         let rnd: u8 = rng.gen();
         self.v_reg[vx as usize] = rnd & nn;
+        self.prog_counter += 2;
     }
     // DXYN
-    fn display_sprite(&mut self, _vx: u8, _vy: u8, _n: u8) {
-        // let sprite = &self.memory[(self.i_reg as usize)..((self.i_reg as usize) + n as usize)];
-        todo!();
+    fn display_sprite(&mut self, vx: u8, vy: u8, n: u8) {
+        let x_coords = self.v_reg[vx as usize];
+        let y_coords = self.v_reg[vy as usize];
+        self.v_reg[0xF] = 0;
+
+        for row in 0..n {
+            let sprite = self.memory[(self.i_reg as usize) + row as usize];
+            let y_coord = (y_coords + row) as u32 % display::BASE_HEIGHT;
+            for bit in 0..8u8 {
+                let x_coord = (x_coords + bit) as u32 % display::BASE_WIDTH;
+                let pixel = self.display.get_pixel(x_coord, y_coord);
+                let sprite_bit = (sprite >> (7 - bit)) & 1;
+                self.v_reg[0x0F] = pixel & sprite_bit;
+                self.display.set_pixel(x_coord, y_coord, pixel ^ sprite_bit);
+            }
+        }
+
+        self.display.draw();
+        self.prog_counter += 2;
     }
     // EX9E
     fn skip_if_key_eq_vx_pressed(&mut self, _vx: u8) {
-        todo!();
+        self.prog_counter += 2;
     }
     // EXA1
     fn skip_if_key_eq_vx_not_pressed(&mut self, _vx: u8) {
-        todo!();
+        self.prog_counter += 2;
     }
     // FX07
     fn set_vx_to_delay_timer(&mut self, vx: u8) {
         self.v_reg[vx as usize] = self.delay_reg;
+        self.prog_counter += 2;
     }
     // FX0A
     fn set_vx_to_key_press(&mut self, _vx: u8) {
-        todo!();
+        self.prog_counter += 2;
     }
     // FX15
     fn set_delay_timer_to_vx(&mut self, vx: u8) {
         self.delay_reg = self.v_reg[vx as usize];
+        self.prog_counter += 2;
     }
     // FX18
     fn set_sound_timer_to_vx(&mut self, vx: u8) {
         self.sound_reg = self.v_reg[vx as usize];
+        self.prog_counter += 2;
     }
     // FX1E
     fn add_ind_reg_vx(&mut self, vx: u8) {
         self.i_reg += self.v_reg[vx as usize] as u16;
+        self.prog_counter += 2;
     }
     // FX29
     fn set_ind_reg_to_loc_of_sprite_for_digit_vx(&mut self, vx: u8) {
-        self.i_reg = FONTS[CPU::FONT_MEM_START + (vx * 5) as usize].into();
+        let x = self.v_reg[vx as usize];
+        self.i_reg = (x as u16) * 5;
+        self.prog_counter += 2;
     }
     // FX33
     fn store_bcd_vx_in_ind_reg(&mut self, vx: u8) {
@@ -312,18 +366,21 @@ impl CPU {
         self.memory[(self.i_reg) as usize] = hundreds;
         self.memory[(self.i_reg + 1) as usize] = tens;
         self.memory[(self.i_reg + 2) as usize] = ones;
+        self.prog_counter += 2;
     }
     // FX55
     fn store_v_reg_in_memory_from_ind_reg(&mut self, vx: u8) {
         for ind in 0..=(vx as usize) {
             self.memory[(self.i_reg as usize) + ind] = self.v_reg[ind];
         }
+        self.prog_counter += 2;
     }
     // FX65
     fn read_v_reg_from_ind_reg(&mut self, vx: u8) {
         for ind in 0..=(vx as usize) {
             self.v_reg[ind] = self.memory[(self.i_reg as usize) + ind];
         }
+        self.prog_counter += 2;
     }
 }
 
