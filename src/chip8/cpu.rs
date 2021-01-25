@@ -104,7 +104,7 @@ impl CPU {
                 break 'running;
             }
 
-            ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 1));
+            ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
         }
     }
 
@@ -311,7 +311,7 @@ impl CPU {
             for bit in 0..8u8 {
                 let x_coord = (x_coords + bit) as u32 % display::BASE_WIDTH;
                 let pixel = self.display.get_pixel(x_coord, y_coord);
-                let sprite_bit = (sprite >> (7 - bit)) & 1;
+                let sprite_bit = sprite >> (7 - bit) & 1;
                 self.v_reg[0x0F] = pixel & sprite_bit;
                 self.display.set_pixel(x_coord, y_coord, pixel ^ sprite_bit);
             }

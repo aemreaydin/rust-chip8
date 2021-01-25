@@ -49,11 +49,11 @@ impl Display {
     }
 
     pub fn get_pixel(&self, x: u32, y: u32) -> u8 {
-        self.pixels[(y * BASE_HEIGHT) as usize + x as usize]
+        self.pixels[(y * BASE_WIDTH) as usize + x as usize]
     }
 
     pub fn set_pixel(&mut self, x: u32, y: u32, bit: u8) {
-        self.pixels[(y * BASE_HEIGHT) as usize + x as usize] = bit;
+        self.pixels[(y * BASE_WIDTH) as usize + x as usize] = bit;
     }
 
     pub fn update(&mut self) -> bool {
@@ -97,7 +97,7 @@ impl Display {
                     if *pixel == 1 {
                         texture_canvas.set_draw_color(Color::YELLOW);
                         texture_canvas
-                            .draw_rect(Rect::new(
+                            .fill_rect(Rect::new(
                                 (ind % BASE_WIDTH as usize) as i32 * (*x_scale as i32),
                                 (ind / BASE_WIDTH as usize) as i32 * (*y_scale as i32),
                                 *x_scale,
