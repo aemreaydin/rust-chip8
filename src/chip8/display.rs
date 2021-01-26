@@ -72,12 +72,13 @@ impl Display {
         false
     }
     pub fn clear(&mut self) {
-        self.canvas.set_draw_color(Color::BLACK);
-        self.canvas.clear();
-        self.canvas.present();
+        for pixel in self.pixels.iter_mut() {
+            *pixel = 0;
+        }
+        self.draw(true);
     }
 
-    pub fn draw(&mut self) {
+    pub fn draw(&mut self, is_clear: bool) {
         let mut texture = self
             .texture_creator
             .create_texture_target(
@@ -93,6 +94,9 @@ impl Display {
             .with_texture_canvas(&mut texture, |texture_canvas| {
                 texture_canvas.set_draw_color(Color::BLACK);
                 texture_canvas.clear();
+                if is_clear {
+                    return;
+                };
                 for (ind, pixel) in pixels.iter().enumerate() {
                     if *pixel == 1 {
                         texture_canvas.set_draw_color(Color::YELLOW);

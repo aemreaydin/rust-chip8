@@ -104,6 +104,16 @@ impl CPU {
                 break 'running;
             }
 
+            if self.delay_reg > 0 {
+                self.delay_reg -= 1;
+            }
+            if self.sound_reg > 0 {
+                if self.sound_reg == 1 {
+                    println!("BEEP");
+                }
+                self.sound_reg -= 1;
+            }
+
             ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
         }
     }
@@ -169,6 +179,8 @@ impl CPU {
     fn return_from_subroutine(&mut self) {
         self.stack_ptr -= 1;
         self.prog_counter = self.stack[(self.stack_ptr as usize)];
+        self.prog_counter += 2;
+        self.stack[self.stack_ptr as usize] = 0;
     }
     // 1NNN
     fn jump_to_address(&mut self, address: u16) {
@@ -247,16 +259,15 @@ impl CPU {
         let val_x = self.v_reg[vx as usize];
         let val_y = self.v_reg[vy as usize];
 
-        let (sub, did_overflow) = val_x.overflowing_sub(val_y);
-        self.v_reg[vx as usize] = sub;
-        self.v_reg[0xF] = if did_overflow { 1 } else { 0 };
+        self.v_reg[0xF] = if val_x > val_y { 1 } else { 0 };
+        self.v_reg[vx as usize] = val_x.wrapping_sub(val_y);
         self.prog_counter += 2;
     }
     // 8XY6
     fn shift_vx_right(&mut self, vx: u8) {
         let val_x = self.v_reg[vx as usize];
         self.v_reg[0xF] = val_x & 1;
-        self.v_reg[vx as usize] = val_x >> 1;
+        self.v_reg[vx as usize] >>= 1;
         self.prog_counter += 2;
     }
     // 8XY7
@@ -264,16 +275,14 @@ impl CPU {
         let val_x = self.v_reg[vx as usize];
         let val_y = self.v_reg[vy as usize];
 
-        let (sub, did_overflow) = val_y.overflowing_sub(val_x);
-        self.v_reg[vx as usize] = sub;
-        self.v_reg[0xF] = if did_overflow { 1 } else { 0 };
+        self.v_reg[0xF] = if val_y > val_x { 1 } else { 0 };
+        self.v_reg[vx as usize] = val_y.wrapping_sub(val_x);
         self.prog_counter += 2;
     }
     // 8XYE
     fn shift_vx_left(&mut self, vx: u8) {
-        let val_x = self.v_reg[vx as usize];
-        self.v_reg[0xF] = (val_x >> 7) & 1;
-        self.v_reg[vx as usize] = val_x << 1;
+        self.v_reg[0xF] = (self.v_reg[vx as usize] & 0b10000000) >> 7;
+        self.v_reg[vx as usize] <<= 1;
         self.prog_counter += 2;
     }
     // 9XY0
@@ -306,6 +315,9 @@ impl CPU {
         self.v_reg[0xF] = 0;
 
         for row in 0..n {
+            if (self.i_reg + row as u16) >= 4096 {
+                continue;
+            }
             let sprite = self.memory[(self.i_reg as usize) + row as usize];
             let y_coord = (y_coords + row) as u32 % display::BASE_HEIGHT;
             for bit in 0..8u8 {
@@ -317,7 +329,7 @@ impl CPU {
             }
         }
 
-        self.display.draw();
+        self.display.draw(false);
         self.prog_counter += 2;
     }
     // EX9E
@@ -350,6 +362,7 @@ impl CPU {
     // FX1E
     fn add_ind_reg_vx(&mut self, vx: u8) {
         self.i_reg += self.v_reg[vx as usize] as u16;
+        self.v_reg[0xF] = if self.i_reg > 0x0F00 { 1 } else { 0 };
         self.prog_counter += 2;
     }
     // FX29
@@ -362,7 +375,7 @@ impl CPU {
     fn store_bcd_vx_in_ind_reg(&mut self, vx: u8) {
         let ones = self.v_reg[vx as usize] % 10;
         let tens = (self.v_reg[vx as usize] / 10) % 10;
-        let hundreds = (self.v_reg[vx as usize] / 100) % 10;
+        let hundreds = (self.v_reg[vx as usize] % 100) % 10;
         self.memory[(self.i_reg) as usize] = hundreds;
         self.memory[(self.i_reg + 1) as usize] = tens;
         self.memory[(self.i_reg + 2) as usize] = ones;
@@ -429,24 +442,18 @@ mod tests {
         let mut cpu = CPU::new(&[]);
         let val = 0xCC;
         cpu.v_reg[0] = val;
-        // Doesn't skip
-        cpu.skip_if_vx_eq_nn(0, 0xCD);
-        assert_eq!(cpu.prog_counter, 0x200);
         // Skip
         cpu.skip_if_vx_eq_nn(0, val);
-        assert_eq!(cpu.prog_counter, 0x202);
+        assert_eq!(cpu.prog_counter, 0x0204);
     }
     #[test]
     fn skips_if_vx_neq_nn() {
         let mut cpu = CPU::new(&[]);
         let val = 0xCC;
         cpu.v_reg[0] = val;
-        // Doesn't skip
-        cpu.skip_if_vx_neq_nn(0, val);
-        assert_eq!(cpu.prog_counter, 0x200);
         // Skip
         cpu.skip_if_vx_neq_nn(0, 0xCD);
-        assert_eq!(cpu.prog_counter, 0x202);
+        assert_eq!(cpu.prog_counter, 0x204);
     }
     #[test]
     fn skips_if_vx_eq_vy() {
@@ -454,14 +461,10 @@ mod tests {
         let val = 0xCC;
         let vx: u8 = 0;
         let vy: u8 = 1;
-        // Doesn't skip
         cpu.v_reg[(vx as usize)] = val;
-        cpu.skip_if_vx_eq_vy(vx, vy);
-        assert_eq!(cpu.prog_counter, 0x200);
-        // Skip
         cpu.v_reg[(vy as usize)] = val;
         cpu.skip_if_vx_eq_vy(vx, vy);
-        assert_eq!(cpu.prog_counter, 0x202);
+        assert_eq!(cpu.prog_counter, 0x204);
     }
     #[test]
     fn sets_vx_to_nn() {
@@ -531,12 +534,12 @@ mod tests {
         cpu.v_reg[1] = 0x02;
         cpu.sub_vx_vy(0, 1);
         assert_eq!(cpu.v_reg[0], 0x01);
-        assert_eq!(cpu.v_reg[0xF], 0);
+        assert_eq!(cpu.v_reg[0xF], 1);
         cpu.v_reg[0] = 0x00;
         cpu.v_reg[1] = 0x01;
         cpu.sub_vx_vy(0, 1);
         assert_eq!(cpu.v_reg[0], 0xFF);
-        assert_eq!(cpu.v_reg[0xF], 1);
+        assert_eq!(cpu.v_reg[0xF], 0);
     }
     #[test]
     fn shifts_vx_right() {
@@ -553,12 +556,12 @@ mod tests {
         cpu.v_reg[1] = 0x04;
         cpu.sub_vy_vx(0, 1);
         assert_eq!(cpu.v_reg[0], 0x02);
-        assert_eq!(cpu.v_reg[0xF], 0);
+        assert_eq!(cpu.v_reg[0xF], 1);
         cpu.v_reg[0] = 0x01;
         cpu.v_reg[1] = 0x00;
         cpu.sub_vy_vx(0, 1);
         assert_eq!(cpu.v_reg[0], 0xFF);
-        assert_eq!(cpu.v_reg[0xF], 1);
+        assert_eq!(cpu.v_reg[0xF], 0);
     }
     #[test]
     fn shifts_vx_left() {
@@ -576,14 +579,9 @@ mod tests {
         let mut cpu = CPU::new(&[]);
         let val = 0xCC;
         cpu.v_reg[0] = val;
-        cpu.v_reg[1] = val;
-        // Doesn't skip
-        cpu.skip_if_vx_neq_vy(0, 1);
-        assert_eq!(cpu.prog_counter, 0x200);
-        // Skip
         cpu.v_reg[1] = val + 1;
         cpu.skip_if_vx_neq_vy(0, 1);
-        assert_eq!(cpu.prog_counter, 0x202);
+        assert_eq!(cpu.prog_counter, 0x204);
     }
     #[test]
     fn sets_ind_reg_to_address() {
